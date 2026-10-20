@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>JEV Shell Guardrail</title>
+<style>
+  :root {
+    --bg: #0b0f12; --fg: #d7e3dd; --muted: #7f8c8d;
+    --accent: #4ade80; --warn: #fbbf24; --danger: #ef4444;
+    --panel: #11161a; --border: #1f2a2f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font-family: ui-monospace, 'JetBrains Mono', Menlo, monospace;
+    font-size: 14px; line-height: 1.45;
+  }
+  .shell { max-width: 900px; margin: 2rem auto; padding: 1rem; }
+  h1 { margin: 0 0 1rem; font-size: 1.1rem; color: var(--accent); }
+  h1 .sub { color: var(--muted); font-weight: normal; margin-left: 0.5rem; }
+  .prompt-row {
+    display: flex; gap: 0.5rem; align-items: center;
+    border: 1px solid var(--border); background: var(--panel);
+    padding: 0.5rem 0.75rem; border-radius: 6px;
+  }
+  .prompt-row::before { content: ">"; color: var(--accent); font-weight: 700; }
+  #cmd {
+    flex: 1; background: transparent; border: 0;
+    color: var(--fg); font: inherit; outline: none;
+  }
+  .entry {
+    border: 1px solid var(--border); background: var(--panel);
+    border-radius: 6px; padding: 0.75rem; margin-top: 0.5rem;
+  }
+  .cmd-row {
+    display: flex; justify-content: space-between;
+    align-items: center; gap: 0.5rem;
+  }
+  .badge {
+    padding: 2px 8px; border-radius: 999px; font-size: 11px;
+    font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+  }
+  .badge.pending { background: rgba(127,140,141,0.2); color: var(--muted); }
+  .badge.allow   { background: rgba(74,222,128,0.15); color: var(--accent); }
+  .badge.review  { background: rgba(251,191,36,0.15); color: var(--warn); }
+  .badge.block   { background: rgba(239,68,68,0.15); color: var(--danger); }
+  .reasons { margin-top: 0.5rem; color: var(--muted); font-size: 12px; }
+  .output {
+    margin-top: 0.5rem; white-space: pre-wrap;
+    background: #000; border: 1px solid var(--border);
+    padding: 0.5rem; border-radius: 4px;
+    max-height: 240px; overflow: auto; font-size: 12px;
+  }
+  .actions { margin-top: 0.5rem; }
+  .actions button {
+    background: transparent; border: 1px solid var(--warn);
+    color: var(--warn); padding: 4px 10px; border-radius: 4px;
+    font: inherit; cursor: pointer;
+  }
+  .actions button:hover { background: rgba(251,191,36,0.1); }
+  .footer { margin-top: 2rem; color: var(--muted); font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+  <div class="shell">
+    <h1>JEV Shell Guardrail <span class="sub">localhost sandbox</span></h1>
+    <form id="form" class="prompt-row">
+      <input id="cmd" placeholder="type a command, Enter to run..." autofocus autocomplete="off"/>
+    </form>
+    <div id="log"></div>
+    <div class="footer">Every command is judged by JEV first. Allowed commands run inside <code>./sandbox/</code> only.</div>
+  </div>
+
+<script>
+const form = document.getElementById('form');
+const cmdInput = document.getElementById('cmd');
+const logEl = document.getElementById('log');
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const command = cmdInput.value.trim();
+  if (!command) return;
+  cmdInput.value = '';
+  await runCommand(command, false);
+});
+
+async function runCommand(command, approved) {
+  const entry = renderEntry(command, {verdict: 'pending'}, false);
+  logEl.prepend(entry);
+  try {
+    const resp = await fetch('/run', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({command, approved}),
+    });
+    const data = await resp.json();
+    entry.replaceWith(renderEntry(command, data, approved));
+  } catch (err) {
+    entry.textContent = `error: ${err}`;
+  }
+}
+
+function renderEntry(command, data, approved) {
+  const e = document.createElement('div');
+  e.className = 'entry';
+  const verdict = data.verdict || 'pending';
+  const reasons = data.reasons ? data.reasons.join(' · ') : 'judging…';
+  const output = data.output ? `<pre class="output">${esc(data.output)}</pre>` : '';
+  e.innerHTML = `
+    <div class="cmd-row">
+      <code>$ ${esc(command)}</code>
+      <span class="badge ${verdict}">${verdict}</span>
+    </div>
+    <div class="reasons">${esc(reasons)}</div>
+    ${output}
+  `;
+  if (verdict === 'review' && !approved) {
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+    const btn = document.createElement('button');
+    btn.textContent = 'Run anyway';
+    btn.addEventListener('click', () => runCommand(command, true));
+    actions.appendChild(btn);
+    e.appendChild(actions);
+  }
+  return e;
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  })[c]);
+}
+</script>
+</body>
+</html>
